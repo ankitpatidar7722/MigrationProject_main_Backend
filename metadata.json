@@ -1,0 +1,5 @@
+{
+  "name": "MigraTrack Pro",
+  "description": "A comprehensive data migration and verification tracking system for managing multi-client database transitions from desktop to web environments.",
+  "requestFramePermissions": []
+}

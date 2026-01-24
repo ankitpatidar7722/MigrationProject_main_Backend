@@ -1,0 +1,14 @@
+**/.git
+**/.gitignore
+**/.vscode
+**/.vs
+**/bin
+**/obj
+**/Migrations
+**/*.md
+**/*.log
+**/debug_*.log
+**/.env
+**/.env.*
+**/appsettings.Development.json
+**/wwwroot/uploads/*
