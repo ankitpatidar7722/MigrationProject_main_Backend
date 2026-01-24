@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: migratrack-backend
+    runtime: dotnet
+    env: dotnet
+    buildCommand: dotnet restore && dotnet build --configuration Release
+    startCommand: dotnet run --configuration Release --no-build --urls http://0.0.0.0:$PORT
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ASPNETCORE_URLS
+        value: http://0.0.0.0:$PORT
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: Cors__AllowedOrigins__0
+        value: https://migration-project-main.vercel.app
+      - key: Security__RequireHttps
+        value: true
+      - key: Security__EnableStrictTransportSecurity
+        value: true
+    healthCheckPath: /health

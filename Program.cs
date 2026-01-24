@@ -6,6 +6,10 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure port from environment (Render uses PORT env var)
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
 // Configure Kestrel for production
 builder.WebHost.ConfigureKestrel(serverOptions =>
 {

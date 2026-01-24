@@ -35,7 +35,8 @@ USER appuser
 EXPOSE 5000
 
 # Set environment variables
-ENV ASPNETCORE_URLS=http://+:5000
+# Note: Render will override PORT via environment variable
+ENV ASPNETCORE_URLS=http://+:${PORT:-5000}
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Health check
