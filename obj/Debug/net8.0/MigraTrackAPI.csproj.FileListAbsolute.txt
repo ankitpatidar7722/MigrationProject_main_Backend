@@ -281,3 +281,5 @@ D:\MigrationProject-main\MigrationProject-main\Backend\obj\Debug\net8.0\refint\M
 D:\MigrationProject-main\MigrationProject-main\Backend\obj\Debug\net8.0\MigraTrackAPI.pdb
 D:\MigrationProject-main\MigrationProject-main\Backend\obj\Debug\net8.0\MigraTrackAPI.genruntimeconfig.cache
 D:\MigrationProject-main\MigrationProject-main\Backend\obj\Debug\net8.0\ref\MigraTrackAPI.dll
+D:\MigrationProject-main\MigrationProject-main\Backend\bin\Debug\net8.0\appsettings.Production.json
+D:\MigrationProject-main\MigrationProject-main\Backend\obj\Debug\net8.0\MigraTrackAPI.sourcelink.json
