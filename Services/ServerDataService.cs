@@ -24,7 +24,7 @@ public class ServerDataService : IServerDataService
 
     public async Task<IEnumerable<ServerData>> GetAllAsync()
     {
-        return await _context.ServerData.ToListAsync();
+        return await _context.ServerData.AsNoTracking().ToListAsync();
     }
 
     public async Task<ServerData?> GetByIdAsync(int id)

@@ -25,6 +25,7 @@ public class VerificationService : IVerificationService
     public async Task<IEnumerable<VerificationRecord>> GetByProjectIdAsync(long projectId)
     {
         return await _context.VerificationRecords
+            .AsNoTracking()
             .Where(v => v.ProjectId == projectId)
             .OrderByDescending(v => v.VerificationId)
             .ToListAsync();

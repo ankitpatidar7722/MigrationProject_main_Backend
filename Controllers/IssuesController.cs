@@ -15,6 +15,13 @@ public class IssuesController : ControllerBase
         _service = service;
     }
 
+    [HttpGet("all")]
+    public async Task<ActionResult<IEnumerable<MigrationIssue>>> GetAll()
+    {
+        var items = await _service.GetAllAsync();
+        return Ok(items);
+    }
+
     [HttpGet("project/{projectId}")]
     public async Task<ActionResult<IEnumerable<MigrationIssue>>> GetByProject(long projectId)
     {

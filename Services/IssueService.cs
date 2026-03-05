@@ -6,6 +6,7 @@ namespace MigraTrackAPI.Services;
 
 public interface IIssueService
 {
+    Task<IEnumerable<MigrationIssue>> GetAllAsync();
     Task<IEnumerable<MigrationIssue>> GetByProjectIdAsync(long projectId);
     Task<MigrationIssue?> GetByIdAsync(string id);
     Task<MigrationIssue> CreateAsync(MigrationIssue item);
@@ -22,11 +23,20 @@ public class IssueService : IIssueService
         _context = context;
     }
 
+    public async Task<IEnumerable<MigrationIssue>> GetAllAsync()
+    {
+        return await _context.MigrationIssues
+            .AsNoTracking()
+            .OrderByDescending(i => i.ReportedDate)
+            .ToListAsync();
+    }
+
     public async Task<IEnumerable<MigrationIssue>> GetByProjectIdAsync(long projectId)
     {
         return await _context.MigrationIssues
+            .AsNoTracking()
             .Where(i => i.ProjectId == projectId)
-            .OrderByDescending(i => i.IssueId) // Or ReportedDate if available
+            .OrderByDescending(i => i.ReportedDate)
             .ToListAsync();
     }
 

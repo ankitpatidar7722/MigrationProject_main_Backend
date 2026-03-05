@@ -121,7 +121,7 @@ public class MigraTrackDbContext : DbContext
         // Configure UserPermission relationship
         modelBuilder.Entity<UserPermission>()
             .HasOne(up => up.User)
-            .WithMany()
+            .WithMany(u => u.Permissions)
             .HasForeignKey(up => up.UserId)
             .OnDelete(DeleteBehavior.Cascade)
             .IsRequired(false);
@@ -129,6 +129,47 @@ public class MigraTrackDbContext : DbContext
         modelBuilder.Entity<UserPermission>()
             .HasIndex(p => new { p.UserId, p.ModuleName })
             .IsUnique();
+
+        // Performance indexes on foreign keys used in dashboard queries
+        modelBuilder.Entity<DataTransferCheck>()
+            .HasIndex(d => d.ProjectId)
+            .HasDatabaseName("IX_DataTransferChecks_ProjectId");
+
+        modelBuilder.Entity<DataTransferCheck>()
+            .HasIndex(d => new { d.ProjectId, d.IsCompleted })
+            .HasDatabaseName("IX_DataTransferChecks_ProjectId_IsCompleted");
+
+        modelBuilder.Entity<VerificationRecord>()
+            .HasIndex(v => v.ProjectId)
+            .HasDatabaseName("IX_VerificationRecords_ProjectId");
+
+        modelBuilder.Entity<VerificationRecord>()
+            .HasIndex(v => new { v.ProjectId, v.IsVerified })
+            .HasDatabaseName("IX_VerificationRecords_ProjectId_IsVerified");
+
+        modelBuilder.Entity<MigrationIssue>()
+            .HasIndex(i => i.ProjectId)
+            .HasDatabaseName("IX_MigrationIssues_ProjectId");
+
+        modelBuilder.Entity<MigrationIssue>()
+            .HasIndex(i => new { i.ProjectId, i.Status })
+            .HasDatabaseName("IX_MigrationIssues_ProjectId_Status");
+
+        modelBuilder.Entity<CustomizationPoint>()
+            .HasIndex(c => c.ProjectId)
+            .HasDatabaseName("IX_CustomizationPoints_ProjectId");
+
+        modelBuilder.Entity<ProjectEmail>()
+            .HasIndex(e => e.ProjectId)
+            .HasDatabaseName("IX_ProjectEmails_ProjectId");
+
+        modelBuilder.Entity<Project>()
+            .HasIndex(p => new { p.IsActive, p.DisplayOrder })
+            .HasDatabaseName("IX_Projects_IsActive_DisplayOrder");
+
+        modelBuilder.Entity<DynamicModuleData>()
+            .HasIndex(d => new { d.ProjectId, d.ModuleGroupId })
+            .HasDatabaseName("IX_DynamicModuleData_ProjectId_ModuleGroupId");
 
         // Apply Global Query Filter for parsing Soft Delete
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())

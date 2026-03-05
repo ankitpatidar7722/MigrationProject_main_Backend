@@ -101,6 +101,14 @@ public class ProjectsController : ControllerBase
         return Ok(stats);
     }
 
+    [HttpGet("dashboard-summary")]
+    [ResponseCache(Duration = 30)]
+    public async Task<IActionResult> GetAllDashboardSummary()
+    {
+        var summary = await _projectService.GetAllDashboardSummaryAsync();
+        return Ok(summary);
+    }
+
     [HttpPut("reorder")]
     public async Task<IActionResult> Reorder([FromBody] List<Project> projects)
     {

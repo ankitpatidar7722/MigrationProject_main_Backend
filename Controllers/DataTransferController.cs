@@ -15,6 +15,13 @@ public class DataTransferController : ControllerBase
         _service = service;
     }
 
+    [HttpGet("all")]
+    public async Task<ActionResult<IEnumerable<DataTransferCheck>>> GetAll()
+    {
+        var items = await _service.GetAllAsync();
+        return Ok(items);
+    }
+
     [HttpGet("project/{projectId}")]
     public async Task<ActionResult<IEnumerable<DataTransferCheck>>> GetByProject(long projectId)
     {

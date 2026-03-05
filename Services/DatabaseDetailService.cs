@@ -26,13 +26,15 @@ public class DatabaseDetailService : IDatabaseDetailService
     public async Task<IEnumerable<DatabaseDetail>> GetAllAsync()
     {
         return await _context.DatabaseDetails
+            .AsNoTracking()
             .Include(d => d.Server)
             .ToListAsync();
     }
-    
+
     public async Task<IEnumerable<DatabaseDetail>> GetByServerIdAsync(int serverId)
     {
         return await _context.DatabaseDetails
+            .AsNoTracking()
             .Include(d => d.Server)
             .Where(d => d.ServerId == serverId)
             .ToListAsync();
@@ -41,6 +43,7 @@ public class DatabaseDetailService : IDatabaseDetailService
     public async Task<DatabaseDetail?> GetByIdAsync(int id)
     {
         return await _context.DatabaseDetails
+            .AsNoTracking()
             .Include(d => d.Server)
             .FirstOrDefaultAsync(d => d.DatabaseId == id);
     }

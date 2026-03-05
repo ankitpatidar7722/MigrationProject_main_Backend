@@ -6,6 +6,7 @@ namespace MigraTrackAPI.Services;
 
 public interface IDataTransferService
 {
+    Task<IEnumerable<DataTransferCheck>> GetAllAsync();
     Task<IEnumerable<DataTransferCheck>> GetByProjectIdAsync(long projectId);
     Task<DataTransferCheck?> GetByIdAsync(long id);
     Task<DataTransferCheck> CreateAsync(DataTransferCheck item);
@@ -22,9 +23,18 @@ public class DataTransferService : IDataTransferService
         _context = context;
     }
 
+    public async Task<IEnumerable<DataTransferCheck>> GetAllAsync()
+    {
+        return await _context.DataTransferChecks
+            .AsNoTracking()
+            .OrderByDescending(d => d.TransferId)
+            .ToListAsync();
+    }
+
     public async Task<IEnumerable<DataTransferCheck>> GetByProjectIdAsync(long projectId)
     {
         return await _context.DataTransferChecks
+            .AsNoTracking()
             .Where(d => d.ProjectId == projectId)
             .OrderByDescending(d => d.TransferId)
             .ToListAsync();

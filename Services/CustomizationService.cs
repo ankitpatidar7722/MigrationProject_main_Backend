@@ -25,6 +25,7 @@ public class CustomizationService : ICustomizationService
     public async Task<IEnumerable<CustomizationPoint>> GetByProjectIdAsync(long projectId)
     {
         return await _context.CustomizationPoints
+            .AsNoTracking()
             .Where(c => c.ProjectId == projectId)
             .OrderByDescending(c => c.CreatedAt)
             .ToListAsync();

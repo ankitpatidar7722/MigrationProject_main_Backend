@@ -32,6 +32,10 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add response caching for dashboard endpoints
+builder.Services.AddResponseCaching();
+builder.Services.AddMemoryCache();
+
 // Add response compression for production
 builder.Services.AddResponseCompression(options =>
 {
@@ -123,7 +127,8 @@ if (builder.Configuration.GetValue<bool>("Security:RequireHttps", false))
 }
 
 app.UseCors("AllowFrontend");
-app.UseStaticFiles(); // Enable static files for uploads
+app.UseResponseCaching();
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 
