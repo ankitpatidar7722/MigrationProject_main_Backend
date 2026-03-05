@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 
@@ -16,10 +17,18 @@ public interface IVerificationService
 public class VerificationService : IVerificationService
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
 
-    public VerificationService(MigraTrackDbContext context)
+    public VerificationService(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
+    }
+
+    private void InvalidateCache()
+    {
+        _cache.Remove("dashboard_all");
+        _cache.Remove("dashboard_summary");
     }
 
     public async Task<IEnumerable<VerificationRecord>> GetByProjectIdAsync(long projectId)
@@ -40,6 +49,7 @@ public class VerificationService : IVerificationService
     {
         _context.VerificationRecords.Add(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return item;
     }
 
@@ -50,6 +60,7 @@ public class VerificationService : IVerificationService
 
         _context.Entry(existing).CurrentValues.SetValues(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return existing;
     }
 
@@ -60,6 +71,7 @@ public class VerificationService : IVerificationService
 
         _context.VerificationRecords.Remove(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return true;
     }
 }

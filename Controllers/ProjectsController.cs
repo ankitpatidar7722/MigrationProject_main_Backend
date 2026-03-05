@@ -109,6 +109,19 @@ public class ProjectsController : ControllerBase
         return Ok(summary);
     }
 
+    /// <summary>
+    /// Unified endpoint: returns ALL dashboard data in a single HTTP call.
+    /// Projects + Transfers + Issues + Per-project stats — all fetched in parallel.
+    /// Cached for 60 seconds in memory.
+    /// </summary>
+    [HttpGet("dashboard-all")]
+    [ResponseCache(Duration = 60)]
+    public async Task<IActionResult> GetDashboardAllData()
+    {
+        var data = await _projectService.GetDashboardAllDataAsync();
+        return Ok(data);
+    }
+
     [HttpPut("reorder")]
     public async Task<IActionResult> Reorder([FromBody] List<Project> projects)
     {

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 
@@ -17,10 +18,18 @@ public interface IIssueService
 public class IssueService : IIssueService
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
 
-    public IssueService(MigraTrackDbContext context)
+    public IssueService(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
+    }
+
+    private void InvalidateCache()
+    {
+        _cache.Remove("dashboard_all");
+        _cache.Remove("dashboard_summary");
     }
 
     public async Task<IEnumerable<MigrationIssue>> GetAllAsync()
@@ -49,6 +58,7 @@ public class IssueService : IIssueService
     {
         _context.MigrationIssues.Add(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return item;
     }
 
@@ -59,6 +69,7 @@ public class IssueService : IIssueService
 
         _context.Entry(existing).CurrentValues.SetValues(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return existing;
     }
 
@@ -69,6 +80,7 @@ public class IssueService : IIssueService
 
         _context.MigrationIssues.Remove(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return true;
     }
 }

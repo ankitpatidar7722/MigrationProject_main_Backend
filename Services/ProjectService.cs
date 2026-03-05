@@ -1,6 +1,7 @@
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using System;
 
 namespace MigraTrackAPI.Services;
@@ -14,31 +15,48 @@ public interface IProjectService
     Task<bool> DeleteProjectAsync(long id);
     Task<object> GetProjectDashboardAsync(long projectId);
     Task<object> GetAllDashboardSummaryAsync();
+    Task<object> GetDashboardAllDataAsync();
     Task<bool> CloneProjectDataAsync(long sourceProjectId, long targetProjectId);
     Task<bool> UpdateProjectDisplayOrdersAsync(List<Project> projects);
+    void InvalidateCache();
 }
 
 public class ProjectService : IProjectService
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
 
-    public ProjectService(MigraTrackDbContext context)
+    public ProjectService(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
+    }
+
+    public void InvalidateCache()
+    {
+        _cache.Remove("projects_all");
+        _cache.Remove("dashboard_all");
+        _cache.Remove("dashboard_summary");
     }
 
     public async Task<IEnumerable<Project>> GetAllProjectsAsync()
     {
-        return await _context.Projects
-            .AsNoTracking()
-            .Include(p => p.ServerDesktop)
-            .Include(p => p.DatabaseDesktop)
-            .Include(p => p.ServerWeb)
-            .Include(p => p.DatabaseWeb)
-            .Where(p => p.IsActive)
-            .OrderBy(p => p.DisplayOrder)
-            .ThenByDescending(p => p.CreatedAt)
-            .ToListAsync();
+        return await _cache.GetOrCreateAsync("projects_all", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.Projects
+                .AsNoTracking()
+                .Include(p => p.ServerDesktop)
+                .Include(p => p.DatabaseDesktop)
+                .Include(p => p.ServerWeb)
+                .Include(p => p.DatabaseWeb)
+                .Where(p => p.IsActive)
+                .OrderBy(p => p.DisplayOrder)
+                .ThenByDescending(p => p.CreatedAt)
+                .AsSplitQuery()
+                .ToListAsync();
+        }) ?? new List<Project>();
     }
 
     public async Task<Project?> GetProjectByIdAsync(long id)
@@ -63,7 +81,7 @@ public class ProjectService : IProjectService
 
         _context.Projects.Add(project);
         await _context.SaveChangesAsync();
-        
+        InvalidateCache();
         return project;
     }
 
@@ -96,6 +114,7 @@ public class ProjectService : IProjectService
         existing.UpdatedAt = DateTime.Now;
 
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return existing;
     }
 
@@ -107,6 +126,7 @@ public class ProjectService : IProjectService
 
         project.IsActive = false;
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return true;
     }
 
@@ -158,90 +178,142 @@ public class ProjectService : IProjectService
 
     public async Task<object> GetAllDashboardSummaryAsync()
     {
-        // Single bulk query: get all project IDs, then get grouped counts in 3 queries total
+        return (await _cache.GetOrCreateAsync("dashboard_summary", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await BuildDashboardSummaryAsync();
+        }))!;
+    }
+
+    private async Task<object> BuildDashboardSummaryAsync()
+    {
         var activeProjectIds = await _context.Projects
             .AsNoTracking()
             .Where(p => p.IsActive)
             .Select(p => p.ProjectId)
             .ToListAsync();
 
-        // Grouped transfer stats: 1 query instead of N*2
-        var transferStats = await _context.DataTransferChecks
+        // Run all 3 grouped queries in PARALLEL
+        var transferStatsTask = _context.DataTransferChecks
             .AsNoTracking()
             .Where(d => activeProjectIds.Contains(d.ProjectId))
             .GroupBy(d => d.ProjectId)
-            .Select(g => new
-            {
-                ProjectId = g.Key,
-                Total = g.Count(),
-                Completed = g.Count(d => d.IsCompleted)
-            })
+            .Select(g => new { ProjectId = g.Key, Total = g.Count(), Completed = g.Count(d => d.IsCompleted) })
             .ToListAsync();
 
-        // Grouped verification stats: 1 query instead of N*2
-        var verificationStats = await _context.VerificationRecords
+        var verificationStatsTask = _context.VerificationRecords
             .AsNoTracking()
             .Where(v => activeProjectIds.Contains(v.ProjectId))
             .GroupBy(v => v.ProjectId)
-            .Select(g => new
-            {
-                ProjectId = g.Key,
-                Total = g.Count(),
-                Completed = g.Count(v => v.IsVerified)
-            })
+            .Select(g => new { ProjectId = g.Key, Total = g.Count(), Completed = g.Count(v => v.IsVerified) })
             .ToListAsync();
 
-        // Grouped issue stats: 1 query instead of N
-        var issueStats = await _context.MigrationIssues
+        var issueStatsTask = _context.MigrationIssues
             .AsNoTracking()
-            .Where(i => activeProjectIds.Contains(i.ProjectId) &&
-                       (i.Status == "Open" || i.Status == "In Progress"))
+            .Where(i => activeProjectIds.Contains(i.ProjectId) && (i.Status == "Open" || i.Status == "In Progress"))
             .GroupBy(i => i.ProjectId)
-            .Select(g => new
-            {
-                ProjectId = g.Key,
-                OpenCount = g.Count()
-            })
+            .Select(g => new { ProjectId = g.Key, OpenCount = g.Count() })
             .ToListAsync();
 
-        // Build per-project summary
-        var projectDashboards = activeProjectIds.ToDictionary(
+        await Task.WhenAll(transferStatsTask, verificationStatsTask, issueStatsTask);
+
+        var transferStats = transferStatsTask.Result;
+        var verificationStats = verificationStatsTask.Result;
+        var issueStats = issueStatsTask.Result;
+
+        return activeProjectIds.ToDictionary(
             pid => pid,
             pid =>
             {
                 var ts = transferStats.FirstOrDefault(t => t.ProjectId == pid);
                 var vs = verificationStats.FirstOrDefault(v => v.ProjectId == pid);
                 var iss = issueStats.FirstOrDefault(i => i.ProjectId == pid);
-
                 var totalTransfers = ts?.Total ?? 0;
                 var completedTransfers = ts?.Completed ?? 0;
                 var totalVerifications = vs?.Total ?? 0;
                 var completedVerifications = vs?.Completed ?? 0;
-
                 return new
                 {
                     totalModules = totalTransfers + totalVerifications,
                     completedMigrations = completedTransfers,
                     pendingMigrations = totalTransfers - completedTransfers,
                     totalIssues = iss?.OpenCount ?? 0,
-                    completionPercentage = totalTransfers > 0
-                        ? Math.Round((double)completedTransfers / totalTransfers * 100, 2)
-                        : 0,
-                    totalTransfers,
-                    completedTransfers,
-                    transferProgress = totalTransfers > 0
-                        ? Math.Round((double)completedTransfers / totalTransfers * 100, 2)
-                        : 0,
-                    totalVerifications,
-                    completedVerifications,
-                    verificationProgress = totalVerifications > 0
-                        ? Math.Round((double)completedVerifications / totalVerifications * 100, 2)
-                        : 0
+                    completionPercentage = totalTransfers > 0 ? Math.Round((double)completedTransfers / totalTransfers * 100, 2) : 0,
+                    totalTransfers, completedTransfers,
+                    transferProgress = totalTransfers > 0 ? Math.Round((double)completedTransfers / totalTransfers * 100, 2) : 0,
+                    totalVerifications, completedVerifications,
+                    verificationProgress = totalVerifications > 0 ? Math.Round((double)completedVerifications / totalVerifications * 100, 2) : 0
                 };
             }
         );
+    }
 
-        return projectDashboards;
+    public async Task<object> GetDashboardAllDataAsync()
+    {
+        return (await _cache.GetOrCreateAsync("dashboard_all", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await BuildDashboardAllDataAsync();
+        }))!;
+    }
+
+    private async Task<object> BuildDashboardAllDataAsync()
+    {
+        // Run ALL 4 queries in PARALLEL - single DB round-trip batch
+        var projectsTask = _context.Projects
+            .AsNoTracking()
+            .Where(p => p.IsActive)
+            .OrderBy(p => p.DisplayOrder)
+            .ThenByDescending(p => p.CreatedAt)
+            .Select(p => new
+            {
+                p.ProjectId, p.ClientName, p.ClientCode, p.Description,
+                p.ProjectType, p.Status, p.MigrationType,
+                p.StartDate, p.TargetCompletionDate, p.LiveDate,
+                p.ProjectManager, p.TechnicalLead,
+                p.ImplementationCoordinator, p.CoordinatorEmail,
+                p.DisplayOrder, p.CreatedAt, p.UpdatedAt,
+                p.ServerIdDesktop, p.DatabaseIdDesktop,
+                p.ServerIdWeb, p.DatabaseIdWeb
+            })
+            .ToListAsync();
+
+        var transfersTask = _context.DataTransferChecks
+            .AsNoTracking()
+            .Select(d => new
+            {
+                d.TransferId, d.ProjectId, d.ModuleName, d.SubModuleName,
+                d.TableNameDesktop, d.TableNameWeb,
+                d.RecordCountDesktop, d.RecordCountWeb, d.MatchPercentage,
+                d.Status, d.IsCompleted, d.MigratedDate, d.VerifiedBy,
+                d.Comments, d.Condition, d.CreatedAt, d.UpdatedAt
+            })
+            .ToListAsync();
+
+        var issuesTask = _context.MigrationIssues
+            .AsNoTracking()
+            .Select(i => new
+            {
+                i.IssueId, i.IssueNumber, i.ProjectId,
+                i.ModuleName, i.SubModuleName, i.Title,
+                i.Description, i.Status, i.Priority, i.Severity,
+                i.Category, i.AssignedTo, i.ReportedBy,
+                i.ReportedDate, i.ResolvedDate,
+                i.CreatedAt, i.UpdatedAt
+            })
+            .ToListAsync();
+
+        var summaryTask = BuildDashboardSummaryAsync();
+
+        await Task.WhenAll(projectsTask, transfersTask, issuesTask, summaryTask);
+
+        return new
+        {
+            projects = projectsTask.Result,
+            transfers = transfersTask.Result,
+            issues = issuesTask.Result,
+            stats = summaryTask.Result
+        };
     }
 
     public async Task<bool> CloneProjectDataAsync(long sourceProjectId, long targetProjectId)
