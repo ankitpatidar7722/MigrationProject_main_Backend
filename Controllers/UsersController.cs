@@ -23,8 +23,8 @@ namespace MigraTrackAPI.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<User>>> GetUsers()
         {
-            // Only return active users by default due to soft delete filter, but good to be explicit
             return await _context.Users
+                .AsNoTracking()
                 .Include(u => u.Permissions)
                 .OrderBy(u => u.Username)
                 .ToListAsync();
@@ -35,6 +35,7 @@ namespace MigraTrackAPI.Controllers
         public async Task<ActionResult<User>> GetUser(int id)
         {
             var user = await _context.Users
+                .AsNoTracking()
                 .Include(u => u.Permissions)
                 .FirstOrDefaultAsync(u => u.UserId == id);
 
@@ -55,13 +56,11 @@ namespace MigraTrackAPI.Controllers
                 return BadRequest("Username already exists.");
             }
 
-            // Ensure password is set (in a real app, hash this!)
             if (string.IsNullOrEmpty(user.PasswordHash))
             {
                 return BadRequest("Password is required.");
             }
 
-            // user.Permissions will be automatically added if present in the payload
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
@@ -86,30 +85,24 @@ namespace MigraTrackAPI.Controllers
                 return NotFound();
             }
 
-            // Update basic fields
             existingUser.FirstName = user.FirstName;
             existingUser.LastName = user.LastName;
             existingUser.Email = user.Email;
             existingUser.Role = user.Role;
             existingUser.IsActive = user.IsActive;
 
-            // Only update password if provided
             if (!string.IsNullOrEmpty(user.PasswordHash))
             {
                 existingUser.PasswordHash = user.PasswordHash;
             }
 
-            // Update Permissions
-            // 1. Remove existing permissions not in the new list (or remove all and re-add)
-            // Strategy: Remove all and re-add is simplest for full update
             _context.UserPermissions.RemoveRange(existingUser.Permissions);
-            
-            // 2. Add new permissions
+
             if (user.Permissions != null)
             {
                 foreach (var perm in user.Permissions)
                 {
-                    perm.UserId = id; // Ensure ID linkage
+                    perm.UserId = id;
                     _context.UserPermissions.Add(perm);
                 }
             }
@@ -143,7 +136,6 @@ namespace MigraTrackAPI.Controllers
                 return NotFound();
             }
 
-            // Soft delete
             _context.Users.Remove(user);
             await _context.SaveChangesAsync();
 

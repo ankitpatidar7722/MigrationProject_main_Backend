@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 
@@ -10,27 +11,51 @@ namespace MigraTrackAPI.Controllers;
 public class FieldMasterController : ControllerBase
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
 
-    public FieldMasterController(MigraTrackDbContext context)
+    public FieldMasterController(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
+    }
+
+    private void InvalidateCache()
+    {
+        _cache.Remove("fieldmaster_all");
+        // Also invalidate group-specific caches — simpler to just remove a known prefix pattern
+        // Since IMemoryCache doesn't support prefix removal, we clear the "all" cache
+        // and let group caches expire naturally (60s TTL)
     }
 
     [HttpGet]
     public async Task<ActionResult<IEnumerable<FieldMaster>>> GetAll()
     {
-        return Ok(await _context.FieldMaster.Where(f => f.IsActive).ToListAsync());
+        var data = await _cache.GetOrCreateAsync("fieldmaster_all", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.FieldMaster
+                .AsNoTracking()
+                .Where(f => f.IsActive)
+                .ToListAsync();
+        });
+        return Ok(data);
     }
 
     [HttpGet("group/{moduleGroupId}")]
     public async Task<ActionResult<IEnumerable<FieldMaster>>> GetByModuleGroup(int moduleGroupId)
     {
-        var fields = await _context.FieldMaster
-            .Where(f => f.ModuleGroupId == moduleGroupId && f.IsActive)
-            .OrderBy(f => f.DisplayOrder)
-            .ToListAsync();
-        
-        return Ok(fields);
+        var cacheKey = $"fieldmaster_group_{moduleGroupId}";
+        var data = await _cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.FieldMaster
+                .AsNoTracking()
+                .Where(f => f.ModuleGroupId == moduleGroupId && f.IsActive)
+                .OrderBy(f => f.DisplayOrder)
+                .ToListAsync();
+        });
+        return Ok(data);
     }
 
     [HttpGet("{id}")]
@@ -46,81 +71,64 @@ public class FieldMasterController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<FieldMaster>> Create(FieldMaster field)
     {
-        try 
-        {
-            var logPath = Path.Combine(Directory.GetCurrentDirectory(), "debug_field_info.log");
-            System.IO.File.AppendAllText(logPath, $"{DateTime.Now}: Creating Field: {field.FieldName}, Group: {field.ModuleGroupId}\n");
+        field.CreatedAt = DateTime.Now;
+        field.UpdatedAt = DateTime.Now;
 
-            field.CreatedAt = DateTime.Now;
-            field.UpdatedAt = DateTime.Now;
-            
-            _context.FieldMaster.Add(field);
-            await _context.SaveChangesAsync();
+        _context.FieldMaster.Add(field);
+        await _context.SaveChangesAsync();
+        InvalidateCache();
 
-            return CreatedAtAction(nameof(GetById), new { id = field.FieldId }, field);
-        }
-        catch (Exception ex)
-        {
-            var logPath = Path.Combine(Directory.GetCurrentDirectory(), "debug_field_error.log");
-            var errorLog = $"{DateTime.Now}: Error: {ex.Message}\nInner: {ex.InnerException?.Message}\nStack: {ex.StackTrace}\n";
-            System.IO.File.AppendAllText(logPath, errorLog);
-            return StatusCode(500, $"Internal Server Error: {ex.Message}");
-        }
+        return CreatedAtAction(nameof(GetById), new { id = field.FieldId }, field);
     }
 
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(int id, FieldMaster field)
     {
-        try
-        {
-            if (id != field.FieldId)
-                return BadRequest();
+        if (id != field.FieldId)
+            return BadRequest();
 
-            var existing = await _context.FieldMaster.FindAsync(id);
-            if (existing == null)
-                return NotFound();
+        var existing = await _context.FieldMaster.FindAsync(id);
+        if (existing == null)
+            return NotFound();
 
-            existing.FieldName = field.FieldName;
-            existing.FieldLabel = field.FieldLabel;
-            existing.FieldDescription = field.FieldDescription;
-            existing.DataType = field.DataType;
-            existing.IsRequired = field.IsRequired;
-            existing.DefaultValue = field.DefaultValue;
-            existing.SelectQueryDb = field.SelectQueryDb;
-            existing.DisplayOrder = field.DisplayOrder;
-            
-            // New fields
-            existing.ValidationRegex = field.ValidationRegex;
-            existing.PlaceholderText = field.PlaceholderText;
-            existing.HelpText = field.HelpText;
-            existing.IsUnique = field.IsUnique;
-            existing.MaxLength = field.MaxLength;
-            existing.IsDisplay = field.IsDisplay;
-            
-            existing.UpdatedAt = DateTime.Now;
+        existing.FieldName = field.FieldName;
+        existing.FieldLabel = field.FieldLabel;
+        existing.FieldDescription = field.FieldDescription;
+        existing.DataType = field.DataType;
+        existing.IsRequired = field.IsRequired;
+        existing.DefaultValue = field.DefaultValue;
+        existing.SelectQueryDb = field.SelectQueryDb;
+        existing.DisplayOrder = field.DisplayOrder;
 
-            await _context.SaveChangesAsync();
-            return Ok(existing);
-        }
-        catch (Exception ex)
-        {
-            var logPath = Path.Combine(Directory.GetCurrentDirectory(), "debug_field_error.log");
-            var errorLog = $"{DateTime.Now}: Update Error: {ex.Message}\nInner: {ex.InnerException?.Message}\nStack: {ex.StackTrace}\n";
-            System.IO.File.AppendAllText(logPath, errorLog);
-            return StatusCode(500, $"Internal Server Error: {ex.Message}");
-        }
+        existing.ValidationRegex = field.ValidationRegex;
+        existing.PlaceholderText = field.PlaceholderText;
+        existing.HelpText = field.HelpText;
+        existing.IsUnique = field.IsUnique;
+        existing.MaxLength = field.MaxLength;
+        existing.IsDisplay = field.IsDisplay;
+
+        existing.UpdatedAt = DateTime.Now;
+
+        await _context.SaveChangesAsync();
+        InvalidateCache();
+        return Ok(existing);
     }
 
     [HttpGet("lookup/{type}")]
     public async Task<ActionResult<IEnumerable<object>>> GetLookupValues(string type)
     {
-        // Security: Only allow fetching from LookupData table based on type
-        // This avoids executing raw SQL from frontend
-        return Ok(await _context.LookupData
-            .Where(l => l.LookupType == type && l.IsActive)
-            .OrderBy(l => l.DisplayOrder)
-            .Select(l => new { l.LookupKey, l.LookupValue })
-            .ToListAsync());
+        var cacheKey = $"lookup_{type}";
+        var data = await _cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.LookupData
+                .AsNoTracking()
+                .Where(l => l.LookupType == type && l.IsActive)
+                .OrderBy(l => l.DisplayOrder)
+                .Select(l => new { l.LookupKey, l.LookupValue })
+                .ToListAsync();
+        });
+        return Ok(data);
     }
 
     [HttpDelete("{id}")]
@@ -132,6 +140,7 @@ public class FieldMasterController : ControllerBase
 
         field.IsActive = false;
         await _context.SaveChangesAsync();
+        InvalidateCache();
 
         return NoContent();
     }

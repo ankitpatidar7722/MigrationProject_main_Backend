@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 using System;
@@ -14,17 +15,27 @@ namespace MigraTrackAPI.Controllers
     public class QuickWorksController : ControllerBase
     {
         private readonly MigraTrackDbContext _context;
+        private readonly IMemoryCache _cache;
+        private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
 
-        public QuickWorksController(MigraTrackDbContext context)
+        public QuickWorksController(MigraTrackDbContext context, IMemoryCache cache)
         {
             _context = context;
+            _cache = cache;
         }
+
+        private void InvalidateCache() => _cache.Remove("quickworks_all");
 
         // GET: api/QuickWorks
         [HttpGet]
         public async Task<ActionResult<IEnumerable<QuickWork>>> GetQuickWorks()
         {
-            return await _context.QuickWorks.ToListAsync();
+            var data = await _cache.GetOrCreateAsync("quickworks_all", async entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+                return await _context.QuickWorks.AsNoTracking().ToListAsync();
+            });
+            return Ok(data);
         }
 
         // GET: api/QuickWorks/5
@@ -56,6 +67,7 @@ namespace MigraTrackAPI.Controllers
             try
             {
                 await _context.SaveChangesAsync();
+                InvalidateCache();
             }
             catch (DbUpdateConcurrencyException)
             {
@@ -80,6 +92,7 @@ namespace MigraTrackAPI.Controllers
             quickWork.UpdatedAt = DateTime.Now;
             _context.QuickWorks.Add(quickWork);
             await _context.SaveChangesAsync();
+            InvalidateCache();
 
             return CreatedAtAction("GetQuickWork", new { id = quickWork.Id }, quickWork);
         }
@@ -96,6 +109,7 @@ namespace MigraTrackAPI.Controllers
 
             _context.QuickWorks.Remove(quickWork);
             await _context.SaveChangesAsync();
+            InvalidateCache();
 
             return NoContent();
         }

@@ -122,6 +122,20 @@ public class ProjectsController : ControllerBase
         return Ok(data);
     }
 
+    /// <summary>
+    /// Unified endpoint: returns a single project with ALL its sub-module data.
+    /// Transfers + Verifications + Issues + Customizations + ManualConfigs + ExcelData.
+    /// Replaces 6-7 separate API calls from the ProjectDetail page.
+    /// </summary>
+    [HttpGet("{id}/detail-all")]
+    public async Task<IActionResult> GetProjectDetailAll(long id)
+    {
+        var data = await _projectService.GetProjectDetailAllAsync(id);
+        if (data == null)
+            return NotFound();
+        return Ok(data);
+    }
+
     [HttpPut("reorder")]
     public async Task<IActionResult> Reorder([FromBody] List<Project> projects)
     {

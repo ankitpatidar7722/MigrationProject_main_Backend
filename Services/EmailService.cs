@@ -28,6 +28,7 @@ public class EmailService : IEmailService
     public async Task<IEnumerable<ProjectEmail>> GetAllAsync()
     {
         return await _context.ProjectEmails
+            .AsNoTracking()
             .OrderByDescending(e => e.EmailDate)
             .ToListAsync();
     }
@@ -35,6 +36,7 @@ public class EmailService : IEmailService
     public async Task<IEnumerable<ProjectEmail>> GetByProjectIdAsync(long projectId)
     {
         return await _context.ProjectEmails
+            .AsNoTracking()
             .Where(e => e.ProjectId == projectId)
             .OrderByDescending(e => e.EmailDate)
             .ToListAsync();
@@ -87,9 +89,6 @@ public class EmailService : IEmailService
         existing.RelatedModule = email.RelatedModule;
         existing.UpdatedAt = DateTime.Now;
 
-        // Attachment update logic usually handled separately or requires re-upload
-        // For simple update, assuming we don't clear attachment unless specific logic exists
-
         await _context.SaveChangesAsync();
         return existing;
     }
@@ -98,9 +97,6 @@ public class EmailService : IEmailService
     {
         var email = await _context.ProjectEmails.FindAsync(id);
         if (email == null) return false;
-
-        // OPTIONAL: Delete physical file if exists
-        // if (!string.IsNullOrEmpty(email.AttachmentPath)) { ... }
 
         _context.ProjectEmails.Remove(email);
         await _context.SaveChangesAsync();

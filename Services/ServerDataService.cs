@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 
@@ -16,15 +17,28 @@ public interface IServerDataService
 public class ServerDataService : IServerDataService
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(120);
 
-    public ServerDataService(MigraTrackDbContext context)
+    public ServerDataService(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
+    }
+
+    private void InvalidateCache()
+    {
+        _cache.Remove("servers_all");
+        _cache.Remove("databases_all"); // Also invalidate databases since they include Server nav prop
     }
 
     public async Task<IEnumerable<ServerData>> GetAllAsync()
     {
-        return await _context.ServerData.AsNoTracking().ToListAsync();
+        return await _cache.GetOrCreateAsync("servers_all", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.ServerData.AsNoTracking().ToListAsync();
+        }) ?? new List<ServerData>();
     }
 
     public async Task<ServerData?> GetByIdAsync(int id)
@@ -36,6 +50,7 @@ public class ServerDataService : IServerDataService
     {
         _context.ServerData.Add(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return item;
     }
 
@@ -46,6 +61,7 @@ public class ServerDataService : IServerDataService
 
         _context.Entry(existing).CurrentValues.SetValues(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return existing;
     }
 
@@ -56,6 +72,7 @@ public class ServerDataService : IServerDataService
 
         _context.ServerData.Remove(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return true;
     }
 }

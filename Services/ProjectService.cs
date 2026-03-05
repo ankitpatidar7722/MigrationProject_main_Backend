@@ -18,6 +18,7 @@ public interface IProjectService
     Task<object> GetDashboardAllDataAsync();
     Task<bool> CloneProjectDataAsync(long sourceProjectId, long targetProjectId);
     Task<bool> UpdateProjectDisplayOrdersAsync(List<Project> projects);
+    Task<object?> GetProjectDetailAllAsync(long projectId);
     void InvalidateCache();
 }
 
@@ -381,6 +382,71 @@ public class ProjectService : IProjectService
             // Log exception here conceptually
             throw; 
         }
+    }
+
+    public async Task<object?> GetProjectDetailAllAsync(long projectId)
+    {
+        // Unified endpoint: returns project + all sub-module data in 1 call.
+        // EF Core DbContext is NOT thread-safe — all queries run sequentially.
+        var project = await _context.Projects
+            .AsNoTracking()
+            .Include(p => p.ServerDesktop)
+            .Include(p => p.DatabaseDesktop)
+            .Include(p => p.ServerWeb)
+            .Include(p => p.DatabaseWeb)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(p => p.ProjectId == projectId);
+
+        if (project == null) return null;
+
+        var transfers = await _context.DataTransferChecks
+            .AsNoTracking()
+            .Where(d => d.ProjectId == projectId)
+            .OrderByDescending(d => d.TransferId)
+            .ToListAsync();
+
+        var verifications = await _context.VerificationRecords
+            .AsNoTracking()
+            .Where(v => v.ProjectId == projectId)
+            .OrderByDescending(v => v.VerificationId)
+            .ToListAsync();
+
+        var issues = await _context.MigrationIssues
+            .AsNoTracking()
+            .Where(i => i.ProjectId == projectId)
+            .OrderByDescending(i => i.ReportedDate)
+            .ToListAsync();
+
+        var customizations = await _context.CustomizationPoints
+            .AsNoTracking()
+            .Where(c => c.ProjectId == projectId)
+            .OrderByDescending(c => c.CreatedAt)
+            .ToListAsync();
+
+        var manualConfigs = await _context.ManualConfigurations
+            .AsNoTracking()
+            .Where(m => m.ProjectId == projectId)
+            .OrderByDescending(m => m.CreatedAt)
+            .ToListAsync();
+
+        var excelData = project.MigrationType == "By Excel"
+            ? await _context.ExcelData
+                .AsNoTracking()
+                .Where(e => e.ProjectId == projectId)
+                .OrderByDescending(e => e.UploadedAt)
+                .ToListAsync()
+            : new List<ExcelData>();
+
+        return new
+        {
+            project,
+            transfers,
+            verifications,
+            issues,
+            customizations,
+            manualConfigs,
+            excelData
+        };
     }
 
     public async Task<bool> UpdateProjectDisplayOrdersAsync(List<Project> projects)

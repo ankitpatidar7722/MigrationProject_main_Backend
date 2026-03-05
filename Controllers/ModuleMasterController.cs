@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 
@@ -10,17 +11,31 @@ namespace MigraTrackAPI.Controllers;
 public class ModuleMasterController : ControllerBase
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
 
-    public ModuleMasterController(MigraTrackDbContext context)
+    public ModuleMasterController(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
     }
+
+    private void InvalidateCache() => _cache.Remove("modulemaster_all");
 
     // GET: api/ModuleMaster
     [HttpGet]
     public async Task<ActionResult<IEnumerable<ModuleMaster>>> GetModuleMasters()
     {
-        return await _context.ModuleMasters.OrderBy(m => m.ModuleName).ThenBy(m => m.SubModuleName).ToListAsync();
+        var data = await _cache.GetOrCreateAsync("modulemaster_all", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.ModuleMasters
+                .AsNoTracking()
+                .OrderBy(m => m.ModuleName)
+                .ThenBy(m => m.SubModuleName)
+                .ToListAsync();
+        });
+        return Ok(data);
     }
 
     // GET: api/ModuleMaster/5
@@ -51,6 +66,7 @@ public class ModuleMasterController : ControllerBase
         try
         {
             await _context.SaveChangesAsync();
+            InvalidateCache();
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -73,6 +89,7 @@ public class ModuleMasterController : ControllerBase
     {
         _context.ModuleMasters.Add(moduleMaster);
         await _context.SaveChangesAsync();
+        InvalidateCache();
 
         return CreatedAtAction("GetModuleMaster", new { id = moduleMaster.ModuleId }, moduleMaster);
     }
@@ -89,6 +106,7 @@ public class ModuleMasterController : ControllerBase
 
         _context.ModuleMasters.Remove(moduleMaster);
         await _context.SaveChangesAsync();
+        InvalidateCache();
 
         return NoContent();
     }

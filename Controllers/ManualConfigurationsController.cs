@@ -21,6 +21,7 @@ public class ManualConfigurationsController : ControllerBase
     public async Task<ActionResult<IEnumerable<ManualConfiguration>>> GetByProject(long projectId)
     {
         return await _context.ManualConfigurations
+            .AsNoTracking()
             .Where(m => m.ProjectId == projectId)
             .OrderByDescending(m => m.CreatedAt)
             .ToListAsync();
@@ -44,7 +45,6 @@ public class ManualConfigurationsController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<ManualConfiguration>> PostManualConfiguration(ManualConfiguration manualConfiguration)
     {
-        // Ensure Project exists
         var project = await _context.Projects.FindAsync(manualConfiguration.ProjectId);
         if (project == null)
         {

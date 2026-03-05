@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 
@@ -10,17 +11,30 @@ namespace MigraTrackAPI.Controllers;
 public class WebTablesController : ControllerBase
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(60);
 
-    public WebTablesController(MigraTrackDbContext context)
+    public WebTablesController(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
     }
+
+    private void InvalidateCache() => _cache.Remove("webtables_all");
 
     // GET: api/WebTables
     [HttpGet]
     public async Task<ActionResult<IEnumerable<WebTable>>> GetWebTables()
     {
-        return await _context.WebTables.OrderBy(w => w.TableName).ToListAsync();
+        var data = await _cache.GetOrCreateAsync("webtables_all", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.WebTables
+                .AsNoTracking()
+                .OrderBy(w => w.TableName)
+                .ToListAsync();
+        });
+        return Ok(data);
     }
 
     // GET: api/WebTables/5
@@ -51,6 +65,7 @@ public class WebTablesController : ControllerBase
         try
         {
             await _context.SaveChangesAsync();
+            InvalidateCache();
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -73,6 +88,7 @@ public class WebTablesController : ControllerBase
     {
         _context.WebTables.Add(webTable);
         await _context.SaveChangesAsync();
+        InvalidateCache();
 
         return CreatedAtAction("GetWebTable", new { id = webTable.WebTableId }, webTable);
     }
@@ -89,6 +105,7 @@ public class WebTablesController : ControllerBase
 
         _context.WebTables.Remove(webTable);
         await _context.SaveChangesAsync();
+        InvalidateCache();
 
         return NoContent();
     }

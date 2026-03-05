@@ -22,8 +22,9 @@ public class ModuleDataController : ControllerBase
         [FromQuery] int moduleGroupId)
     {
         var data = await _context.DynamicModuleData
-            .Where(d => d.ProjectId == projectId && 
-                       d.ModuleGroupId == moduleGroupId && 
+            .AsNoTracking()
+            .Where(d => d.ProjectId == projectId &&
+                       d.ModuleGroupId == moduleGroupId &&
                        !d.IsDeleted)
             .OrderByDescending(d => d.CreatedAt)
             .ToListAsync();
@@ -46,7 +47,7 @@ public class ModuleDataController : ControllerBase
     {
         data.CreatedAt = DateTime.Now;
         data.UpdatedAt = DateTime.Now;
-        
+
         _context.DynamicModuleData.Add(data);
         await _context.SaveChangesAsync();
 

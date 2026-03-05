@@ -23,6 +23,7 @@ public class ExcelDataController : ControllerBase
     public async Task<ActionResult<IEnumerable<ExcelData>>> GetByProject(long projectId)
     {
         return await _context.ExcelData
+            .AsNoTracking()
             .Where(e => e.ProjectId == projectId)
             .OrderByDescending(e => e.UploadedAt)
             .ToListAsync();
@@ -37,18 +38,15 @@ public class ExcelDataController : ControllerBase
             return BadRequest("No file uploaded.");
         }
 
-        // Ensure upload directory exists
         var uploadsFolder = Path.Combine(_environment.WebRootPath ?? _environment.ContentRootPath, "Uploads", "ExcelData");
         if (!Directory.Exists(uploadsFolder))
         {
             Directory.CreateDirectory(uploadsFolder);
         }
 
-        // Generate unique filename
         var uniqueFileName = $"{Guid.NewGuid()}_{uploadDto.File.FileName}";
         var filePath = Path.Combine(uploadsFolder, uniqueFileName);
 
-        // Save file
         using (var stream = new FileStream(filePath, FileMode.Create))
         {
             await uploadDto.File.CopyToAsync(stream);
@@ -61,7 +59,7 @@ public class ExcelDataController : ControllerBase
             SubModuleName = uploadDto.SubModuleName,
             Description = uploadDto.Description,
             FileName = uploadDto.File.FileName,
-            FilePath = Path.Combine("Uploads", "ExcelData", uniqueFileName).Replace("\\", "/"), // Store relative path
+            FilePath = Path.Combine("Uploads", "ExcelData", uniqueFileName).Replace("\\", "/"),
             UploadedBy = uploadDto.UploadedBy,
             UploadedAt = DateTime.UtcNow
         };
@@ -83,7 +81,7 @@ public class ExcelDataController : ControllerBase
         }
 
         var fullPath = Path.Combine(_environment.WebRootPath ?? _environment.ContentRootPath, excelData.FilePath);
-        
+
         if (!System.IO.File.Exists(fullPath))
         {
             return NotFound("File not found on server.");
@@ -109,8 +107,7 @@ public class ExcelDataController : ControllerBase
             return NotFound();
         }
 
-        // Optional: Delete physical file
-        try 
+        try
         {
             var fullPath = Path.Combine(_environment.WebRootPath ?? _environment.ContentRootPath, excelData.FilePath);
             if (System.IO.File.Exists(fullPath))
@@ -120,7 +117,6 @@ public class ExcelDataController : ControllerBase
         }
         catch (Exception ex)
         {
-            // Log error but continue with DB deletion
             Console.WriteLine($"Error deleting file: {ex.Message}");
         }
 
@@ -129,6 +125,7 @@ public class ExcelDataController : ControllerBase
 
         return NoContent();
     }
+
     // PUT: api/ExcelData/5
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(int id, [FromForm] ExcelDataUploadDto uploadDto)
@@ -144,10 +141,8 @@ public class ExcelDataController : ControllerBase
         excelData.Description = uploadDto.Description;
         excelData.UploadedBy = uploadDto.UploadedBy;
 
-        // Only update file if a new one is provided
         if (uploadDto.File != null && uploadDto.File.Length > 0)
         {
-            // Delete old file
             try
             {
                 var oldPath = Path.Combine(_environment.WebRootPath ?? _environment.ContentRootPath, excelData.FilePath);
@@ -161,7 +156,6 @@ public class ExcelDataController : ControllerBase
                 Console.WriteLine($"Error deleting old file: {ex.Message}");
             }
 
-            // Save new file
             var uploadsFolder = Path.Combine(_environment.WebRootPath ?? _environment.ContentRootPath, "Uploads", "ExcelData");
             if (!Directory.Exists(uploadsFolder))
             {
@@ -178,7 +172,7 @@ public class ExcelDataController : ControllerBase
 
             excelData.FileName = uploadDto.File.FileName;
             excelData.FilePath = Path.Combine("Uploads", "ExcelData", uniqueFileName).Replace("\\", "/");
-            excelData.UploadedAt = DateTime.UtcNow; // Update timestamp only if file changes? Or always? Let's update it.
+            excelData.UploadedAt = DateTime.UtcNow;
         }
 
         await _context.SaveChangesAsync();
@@ -193,6 +187,6 @@ public class ExcelDataUploadDto
     public string ModuleName { get; set; } = string.Empty;
     public string SubModuleName { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public IFormFile? File { get; set; } // Nullable for updates
+    public IFormFile? File { get; set; }
     public int? UploadedBy { get; set; }
 }

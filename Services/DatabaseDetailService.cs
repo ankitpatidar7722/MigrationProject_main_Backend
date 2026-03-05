@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using MigraTrackAPI.Data;
 using MigraTrackAPI.Models;
 
@@ -17,27 +18,45 @@ public interface IDatabaseDetailService
 public class DatabaseDetailService : IDatabaseDetailService
 {
     private readonly MigraTrackDbContext _context;
+    private readonly IMemoryCache _cache;
+    private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(120);
 
-    public DatabaseDetailService(MigraTrackDbContext context)
+    public DatabaseDetailService(MigraTrackDbContext context, IMemoryCache cache)
     {
         _context = context;
+        _cache = cache;
+    }
+
+    private void InvalidateCache()
+    {
+        _cache.Remove("databases_all");
+        // Server-specific caches expire naturally (120s TTL)
     }
 
     public async Task<IEnumerable<DatabaseDetail>> GetAllAsync()
     {
-        return await _context.DatabaseDetails
-            .AsNoTracking()
-            .Include(d => d.Server)
-            .ToListAsync();
+        return await _cache.GetOrCreateAsync("databases_all", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.DatabaseDetails
+                .AsNoTracking()
+                .Include(d => d.Server)
+                .ToListAsync();
+        }) ?? new List<DatabaseDetail>();
     }
 
     public async Task<IEnumerable<DatabaseDetail>> GetByServerIdAsync(int serverId)
     {
-        return await _context.DatabaseDetails
-            .AsNoTracking()
-            .Include(d => d.Server)
-            .Where(d => d.ServerId == serverId)
-            .ToListAsync();
+        var cacheKey = $"databases_server_{serverId}";
+        return await _cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+            return await _context.DatabaseDetails
+                .AsNoTracking()
+                .Include(d => d.Server)
+                .Where(d => d.ServerId == serverId)
+                .ToListAsync();
+        }) ?? new List<DatabaseDetail>();
     }
 
     public async Task<DatabaseDetail?> GetByIdAsync(int id)
@@ -52,6 +71,7 @@ public class DatabaseDetailService : IDatabaseDetailService
     {
         _context.DatabaseDetails.Add(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return item;
     }
 
@@ -62,6 +82,7 @@ public class DatabaseDetailService : IDatabaseDetailService
 
         _context.Entry(existing).CurrentValues.SetValues(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return existing;
     }
 
@@ -72,6 +93,7 @@ public class DatabaseDetailService : IDatabaseDetailService
 
         _context.DatabaseDetails.Remove(item);
         await _context.SaveChangesAsync();
+        InvalidateCache();
         return true;
     }
 }
