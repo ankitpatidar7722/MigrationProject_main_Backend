@@ -132,27 +132,18 @@ public class ProjectService : IProjectService
 
     public async Task<object> GetProjectDashboardAsync(long projectId)
     {
-        // Optimized: run all 5 counts in parallel instead of sequentially
-        var totalTransfersTask = _context.DataTransferChecks
+        // Sequential queries — DbContext is not thread-safe
+        var totalTransfers = await _context.DataTransferChecks
             .CountAsync(d => d.ProjectId == projectId);
-        var completedTransfersTask = _context.DataTransferChecks
+        var completedTransfers = await _context.DataTransferChecks
             .CountAsync(d => d.ProjectId == projectId && d.IsCompleted);
-        var totalIssuesTask = _context.MigrationIssues
+        var totalIssues = await _context.MigrationIssues
             .CountAsync(i => i.ProjectId == projectId &&
                            (i.Status == "Open" || i.Status == "In Progress"));
-        var totalVerificationsTask = _context.VerificationRecords
+        var totalVerifications = await _context.VerificationRecords
             .CountAsync(v => v.ProjectId == projectId);
-        var completedVerificationsTask = _context.VerificationRecords
+        var completedVerifications = await _context.VerificationRecords
             .CountAsync(v => v.ProjectId == projectId && v.IsVerified);
-
-        await Task.WhenAll(totalTransfersTask, completedTransfersTask, totalIssuesTask,
-                          totalVerificationsTask, completedVerificationsTask);
-
-        var totalTransfers = totalTransfersTask.Result;
-        var completedTransfers = completedTransfersTask.Result;
-        var totalIssues = totalIssuesTask.Result;
-        var totalVerifications = totalVerificationsTask.Result;
-        var completedVerifications = completedVerificationsTask.Result;
 
         return new
         {
@@ -187,39 +178,34 @@ public class ProjectService : IProjectService
 
     private async Task<object> BuildDashboardSummaryAsync()
     {
+        // EF Core DbContext is NOT thread-safe, so queries must run sequentially.
+        // With 60s cache, this only executes once per minute.
         var activeProjectIds = await _context.Projects
             .AsNoTracking()
             .Where(p => p.IsActive)
             .Select(p => p.ProjectId)
             .ToListAsync();
 
-        // Run all 3 grouped queries in PARALLEL
-        var transferStatsTask = _context.DataTransferChecks
+        var transferStats = await _context.DataTransferChecks
             .AsNoTracking()
             .Where(d => activeProjectIds.Contains(d.ProjectId))
             .GroupBy(d => d.ProjectId)
             .Select(g => new { ProjectId = g.Key, Total = g.Count(), Completed = g.Count(d => d.IsCompleted) })
             .ToListAsync();
 
-        var verificationStatsTask = _context.VerificationRecords
+        var verificationStats = await _context.VerificationRecords
             .AsNoTracking()
             .Where(v => activeProjectIds.Contains(v.ProjectId))
             .GroupBy(v => v.ProjectId)
             .Select(g => new { ProjectId = g.Key, Total = g.Count(), Completed = g.Count(v => v.IsVerified) })
             .ToListAsync();
 
-        var issueStatsTask = _context.MigrationIssues
+        var issueStats = await _context.MigrationIssues
             .AsNoTracking()
             .Where(i => activeProjectIds.Contains(i.ProjectId) && (i.Status == "Open" || i.Status == "In Progress"))
             .GroupBy(i => i.ProjectId)
             .Select(g => new { ProjectId = g.Key, OpenCount = g.Count() })
             .ToListAsync();
-
-        await Task.WhenAll(transferStatsTask, verificationStatsTask, issueStatsTask);
-
-        var transferStats = transferStatsTask.Result;
-        var verificationStats = verificationStatsTask.Result;
-        var issueStats = issueStatsTask.Result;
 
         return activeProjectIds.ToDictionary(
             pid => pid,
@@ -259,8 +245,9 @@ public class ProjectService : IProjectService
 
     private async Task<object> BuildDashboardAllDataAsync()
     {
-        // Run ALL 4 queries in PARALLEL - single DB round-trip batch
-        var projectsTask = _context.Projects
+        // EF Core DbContext is NOT thread-safe — all queries run sequentially.
+        // With 60s memory cache, this only executes once per minute.
+        var projects = await _context.Projects
             .AsNoTracking()
             .Where(p => p.IsActive)
             .OrderBy(p => p.DisplayOrder)
@@ -278,7 +265,7 @@ public class ProjectService : IProjectService
             })
             .ToListAsync();
 
-        var transfersTask = _context.DataTransferChecks
+        var transfers = await _context.DataTransferChecks
             .AsNoTracking()
             .Select(d => new
             {
@@ -290,7 +277,7 @@ public class ProjectService : IProjectService
             })
             .ToListAsync();
 
-        var issuesTask = _context.MigrationIssues
+        var issues = await _context.MigrationIssues
             .AsNoTracking()
             .Select(i => new
             {
@@ -303,17 +290,9 @@ public class ProjectService : IProjectService
             })
             .ToListAsync();
 
-        var summaryTask = BuildDashboardSummaryAsync();
+        var stats = await BuildDashboardSummaryAsync();
 
-        await Task.WhenAll(projectsTask, transfersTask, issuesTask, summaryTask);
-
-        return new
-        {
-            projects = projectsTask.Result,
-            transfers = transfersTask.Result,
-            issues = issuesTask.Result,
-            stats = summaryTask.Result
-        };
+        return new { projects, transfers, issues, stats };
     }
 
     public async Task<bool> CloneProjectDataAsync(long sourceProjectId, long targetProjectId)
