@@ -137,7 +137,7 @@ public class ProjectService : IProjectService
         var totalTransfers = await _context.DataTransferChecks
             .CountAsync(d => d.ProjectId == projectId);
         var completedTransfers = await _context.DataTransferChecks
-            .CountAsync(d => d.ProjectId == projectId && d.IsCompleted);
+            .CountAsync(d => d.ProjectId == projectId && (d.IsCompleted || d.Status == "No Data"));
         var totalIssues = await _context.MigrationIssues
             .CountAsync(i => i.ProjectId == projectId &&
                            (i.Status == "Open" || i.Status == "In Progress"));
@@ -191,7 +191,7 @@ public class ProjectService : IProjectService
             .AsNoTracking()
             .Where(d => activeProjectIds.Contains(d.ProjectId))
             .GroupBy(d => d.ProjectId)
-            .Select(g => new { ProjectId = g.Key, Total = g.Count(), Completed = g.Count(d => d.IsCompleted) })
+            .Select(g => new { ProjectId = g.Key, Total = g.Count(), Completed = g.Count(d => d.IsCompleted || d.Status == "No Data") })
             .ToListAsync();
 
         var verificationStats = await _context.VerificationRecords
